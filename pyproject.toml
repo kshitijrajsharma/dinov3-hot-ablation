@@ -1,0 +1,87 @@
+[project]
+name = "dinov3-hot"
+version = "0.1.0"
+description = "Frozen DINOv3-L encoder + UperNet decoder fine-tuned on HOT VHR building segmentation"
+authors = [{ name = "kshitijrajsharma", email = "skshitizraj@gmail.com" }]
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "datasets>=4.8.5",
+    "geomltoolkits>=2.1.0",
+    "huggingface-hub>=1.15.0",
+    "lightning>=2.6.1",
+    "omegaconf>=2.3.0",
+    "onnx>=1.17",
+    "onnxruntime>=1.18",
+    "onnxscript>=0.7.0",
+    "optuna>=4.8.0",
+    "pyarrow>=24.0.0",
+    "rasterio>=1.5.0",
+    "terratorch>=1.2.4",
+    "torch<=2.7.1",
+    "torchvision<=0.22.1",
+]
+
+[project.scripts]
+dinov3-hot = "dinov3_hot.cli:app"
+
+[build-system]
+requires = ["uv_build>=0.11.8,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.uv]
+package = true
+
+[[tool.uv.index]]
+name = "pytorch-cu118"
+url = "https://download.pytorch.org/whl/cu118"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cu118", marker = "sys_platform == 'linux'" }]
+torchvision = [{ index = "pytorch-cu118", marker = "sys_platform == 'linux'" }]
+geomltoolkits = { path = "/home/krschap/code/personal/geoml-toolkits", editable = true }
+
+[tool.ruff]
+line-length = 110
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "W",
+    "I",
+    "B",
+    "UP",
+    "SIM",
+    "RUF",
+    "N",
+    "PL",
+]
+ignore = [
+    "PLR0913",
+    "PLR2004",
+    "PLC0415",
+]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.ty.environment]
+python-version = "3.13"
+
+[tool.ty.rules]
+unresolved-import = "ignore"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "slow: requires downloading the HOT dataset; skipped by default",
+]
+addopts = "-m 'not slow'"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pre-commit>=4",
+    "ruff>=0.9",
+    "ty>=0.0.1a1",
+]
