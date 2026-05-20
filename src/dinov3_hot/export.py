@@ -5,10 +5,21 @@ import numpy as np
 import onnxruntime as ort
 import torch
 from huggingface_hub import hf_hub_download
+from torch import nn
 
 from dinov3_hot.model import DinoV3HotLit
 
 log = logging.getLogger(__name__)
+
+
+class _MainHeadOnly(nn.Module):
+    def __init__(self, net: nn.Module) -> None:
+        super().__init__()
+        self.net = net
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        main, _ = self.net(x)
+        return main
 
 
 def export_onnx(
@@ -22,7 +33,8 @@ def export_onnx(
     encoder_ckpt = hf_hub_download(repo_id=cfg.hf_ckpt_repo, filename=cfg.hf_ckpt_file)
     model = DinoV3HotLit.load_from_checkpoint(str(ckpt_path), map_location=device, ckpt_path=encoder_ckpt)
     model.eval()
-    inner = model.net.to(device)
+    # Export only the main head; the FCN aux head is supervision-only and unused at inference.
+    inner = _MainHeadOnly(model.net).to(device)
 
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)

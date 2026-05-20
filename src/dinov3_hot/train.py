@@ -2,7 +2,7 @@ import logging
 
 import lightning.pytorch as pl
 import torch
-from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
+from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint, TQDMProgressBar
 from lightning.pytorch.loggers import CSVLogger
 from omegaconf import DictConfig, OmegaConf
 
@@ -56,6 +56,9 @@ def train(cfg: DictConfig) -> dict:
         auto_insert_metric_name=False,
     )
     early = EarlyStopping(monitor="val/loss", mode="min", patience=cfg.early_stop_patience)
+    # refresh_rate=0 makes TQDM print one line per epoch instead of live-updating,
+    # so redirected logs (nohup ... > log) show clean per-epoch metrics.
+    progress = TQDMProgressBar(refresh_rate=0)
     csv_logger = CSVLogger(save_dir=str(out_dir), name="lightning")
 
     trainer = pl.Trainer(
@@ -64,7 +67,7 @@ def train(cfg: DictConfig) -> dict:
         accelerator="auto",
         devices="auto",
         gradient_clip_val=cfg.grad_clip,
-        callbacks=[ckpt_cb, early],
+        callbacks=[ckpt_cb, early, progress],
         logger=csv_logger,
         log_every_n_steps=10,
         default_root_dir=str(out_dir),

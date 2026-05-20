@@ -45,6 +45,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_ft.add_argument("--out-dir", required=True)
     p_ft.add_argument("--ft-lr", type=float, default=5e-5)
     p_ft.add_argument("--ft-epochs", type=int, default=15)
+    p_ft.add_argument("--ft-patience", type=int, default=5)
     p_ft.add_argument("--val-frac", type=float, default=0.3)
     _common(p_ft)
 
@@ -95,6 +96,7 @@ def app() -> int:
             val_frac=args.val_frac,
             ft_lr=args.ft_lr,
             ft_epochs=args.ft_epochs,
+            ft_patience=args.ft_patience,
         )
         print(json.dumps(summary, indent=2))
         return 0

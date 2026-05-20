@@ -17,6 +17,16 @@ log = logging.getLogger(__name__)
 _STATS_FILENAME = "norm_stats.json"
 
 
+def load_norm_stats(repo_id: str, root: str | Path) -> tuple[list[float], list[float]]:
+    root = Path(root)
+    root.mkdir(parents=True, exist_ok=True)
+    stats_path = root / _STATS_FILENAME
+    if not stats_path.exists():
+        hf_hub_download(repo_id=repo_id, repo_type="dataset", filename=_STATS_FILENAME, local_dir=str(root))
+    stats = json.loads(stats_path.read_text())
+    return stats["mean"], stats["std"]
+
+
 def _boundary(mask: np.ndarray, width: int) -> np.ndarray:
     if width <= 0 or mask.sum() == 0:
         return np.zeros_like(mask, dtype=np.uint8)
@@ -83,13 +93,7 @@ class HotBuildingDataModule(LightningDataModule):
         self.seed = seed
 
     def prepare_data(self) -> None:
-        self.root.mkdir(parents=True, exist_ok=True)
-        hf_hub_download(
-            repo_id=self.repo_id,
-            repo_type="dataset",
-            filename=_STATS_FILENAME,
-            local_dir=str(self.root),
-        )
+        load_norm_stats(self.repo_id, self.root)
 
     def _load_split(self, split: str) -> Dataset:
         hf_split = "validation" if split == "val" else split
@@ -105,9 +109,9 @@ class HotBuildingDataModule(LightningDataModule):
         return ds
 
     def setup(self, stage: str | None = None) -> None:
-        stats = json.loads((self.root / _STATS_FILENAME).read_text())
-        self._train_tf = _build_transforms(self.img_size, stats["mean"], stats["std"], train=True)
-        self._eval_tf = _build_transforms(self.img_size, stats["mean"], stats["std"], train=False)
+        mean, std = load_norm_stats(self.repo_id, self.root)
+        self._train_tf = _build_transforms(self.img_size, mean, std, train=True)
+        self._eval_tf = _build_transforms(self.img_size, mean, std, train=False)
 
         if stage in (None, "fit"):
             self.train_ds = self._load_split("train")

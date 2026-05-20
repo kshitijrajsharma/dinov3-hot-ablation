@@ -10,11 +10,13 @@ class HpoConfig:
     n_trials: int = 8
     data_pct: float = 10.0
     max_epochs: int = 5
-    lr_range: tuple[float, float] = (3e-5, 3e-4)
-    weight_decay_range: tuple[float, float] = (1e-3, 1e-1)
-    boundary_loss_weight_range: tuple[float, float] = (0.3, 1.0)
-    distance_loss_weight_range: tuple[float, float] = (0.3, 1.5)
-    tv_loss_weight_range: tuple[float, float] = (0.0, 0.1)
+    # Wide ranges so HPO can find configurations that improve instance F1, not just pixel IoU.
+    lr_range: tuple[float, float] = (3e-4, 3e-3)
+    weight_decay_range: tuple[float, float] = (1e-4, 1e-2)
+    boundary_loss_weight_range: tuple[float, float] = (0.1, 2.0)
+    distance_loss_weight_range: tuple[float, float] = (0.1, 2.0)
+    aux_loss_weight_range: tuple[float, float] = (0.2, 0.6)
+    tv_loss_weight_range: tuple[float, float] = (0.0, 0.15)
     storage: str | None = None
     study_name: str = "dinov3_hot_hpo"
 
@@ -31,8 +33,8 @@ class TrainConfig:
     img_size: int = 256
     patch_size: int = 16
     seg_out_indices: tuple[int, ...] = (5, 11, 17, 23)
-    decoder_channels: int = 256
-    head_dropout: float = 0.2
+    aux_in_index: int = 2
+    decoder_channels: int = 512
 
     dataset_repo: str = "hotosm/vhr-building-segmentation"
     data_root: str = "data/hot_building"
@@ -47,10 +49,11 @@ class TrainConfig:
     pin_memory: bool = True
     persistent_workers: bool = True
 
-    lr: float = 2.22e-4
-    weight_decay: float = 0.0094
-    max_epochs: int = 60
-    early_stop_patience: int = 10
+    lr: float = 1e-3
+    weight_decay: float = 1e-3
+    max_epochs: int = 50
+    early_stop_patience: int = 5
+    aux_loss_weight: float = 0.4
     boundary_loss_weight: float = 0.43
     distance_loss_weight: float = 0.52
     tv_loss_weight: float = 0.0
@@ -62,10 +65,10 @@ class TrainConfig:
     grad_clip: float = 1.0
 
     output_dir: str = "outputs"
-    run_name: str = "dinov3l_v3"
+    run_name: str = "dinov3l_v5"
 
     tile_window: int = 256
-    tile_stride: int = 224
+    tile_stride: int = 170
     tile_threshold: float = 0.5
 
     hpo: HpoConfig = field(default_factory=HpoConfig)

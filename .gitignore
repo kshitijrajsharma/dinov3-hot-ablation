@@ -18,6 +18,7 @@ logs/
 wandb/
 lightning_logs/
 mlruns/
+pr_pack/
 
 *.onnx
 *.pt

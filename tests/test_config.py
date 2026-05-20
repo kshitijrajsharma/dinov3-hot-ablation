@@ -6,6 +6,9 @@ def test_default_config_loads():
     assert cfg.backbone == "terratorch_dinov3_vitl16_lvd"
     assert cfg.img_size == 256
     assert tuple(cfg.seg_out_indices) == (5, 11, 17, 23)
+    assert cfg.aux_in_index == 2
+    assert cfg.aux_loss_weight == 0.4
+    assert cfg.decoder_channels == 512
 
 
 def test_yaml_overrides_apply():

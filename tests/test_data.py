@@ -69,6 +69,7 @@ def test_datamodule_yields_correct_shapes():
         root=cfg.data_root,
         img_size=cfg.img_size,
         boundary_width=cfg.boundary_width,
+        distance_clip=cfg.distance_clip,
         drop_null_images=True,
         data_pct=cfg.data_pct,
         batch_size=2,

@@ -1,4 +1,3 @@
-import json
 import logging
 from pathlib import Path
 
@@ -8,7 +7,7 @@ import rasterio
 import torch
 from geomltoolkits.raster.burn import burn_labels
 from huggingface_hub import hf_hub_download
-from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
+from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint, TQDMProgressBar
 from lightning.pytorch.loggers import CSVLogger
 from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import DataLoader, Dataset
@@ -16,7 +15,7 @@ from torchvision.transforms import v2
 from torchvision.tv_tensors import Image, Mask
 
 from dinov3_hot.config import resolve_root
-from dinov3_hot.data import _boundary, _signed_distance
+from dinov3_hot.data import _boundary, _signed_distance, load_norm_stats
 from dinov3_hot.model import DinoV3HotLit
 
 log = logging.getLogger(__name__)
@@ -83,6 +82,7 @@ def finetune(
     val_frac: float = 0.3,
     ft_lr: float = 5e-5,
     ft_epochs: int = 15,
+    ft_patience: int = 5,
 ) -> dict:
     pl.seed_everything(cfg.seed, workers=True)
     chips_dir = Path(chips_dir)
@@ -106,17 +106,7 @@ def finetune(
         "Banepa FT split: %d train / %d val (from %d total)", len(train_pairs), len(val_pairs), len(pairs)
     )
 
-    stats_path = resolve_root(cfg) / "norm_stats.json"
-    if not stats_path.exists():
-        hf_hub_download(
-            repo_id=cfg.dataset_repo,
-            repo_type="dataset",
-            filename="norm_stats.json",
-            local_dir=str(resolve_root(cfg)),
-        )
-    stats = json.loads(stats_path.read_text())
-    mean, std = stats["mean"], stats["std"]
-
+    mean, std = load_norm_stats(cfg.dataset_repo, resolve_root(cfg))
     train_ds = LocalChipDataset(
         train_pairs,
         cfg.img_size,
@@ -165,14 +155,15 @@ def finetune(
         save_last=False,
         auto_insert_metric_name=False,
     )
-    early = EarlyStopping(monitor="val/iou", mode="max", patience=5)
+    early = EarlyStopping(monitor="val/iou", mode="max", patience=ft_patience)
+    progress = TQDMProgressBar(refresh_rate=0)
     trainer = pl.Trainer(
         max_epochs=ft_epochs,
         precision=cfg.precision,
         accelerator="auto",
         devices=1,
         gradient_clip_val=cfg.grad_clip,
-        callbacks=[ckpt_cb, early],
+        callbacks=[ckpt_cb, early, progress],
         logger=CSVLogger(save_dir=str(out), name="lightning"),
         log_every_n_steps=1,
         default_root_dir=str(out),

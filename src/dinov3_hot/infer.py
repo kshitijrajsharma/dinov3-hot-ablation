@@ -1,4 +1,3 @@
-import json
 import logging
 from pathlib import Path
 
@@ -15,6 +14,7 @@ from skimage.feature import peak_local_max
 from skimage.segmentation import watershed
 
 from dinov3_hot.config import resolve_root
+from dinov3_hot.data import load_norm_stats
 from dinov3_hot.model import DinoV3HotLit
 
 log = logging.getLogger(__name__)
@@ -25,21 +25,6 @@ def load_model(ckpt_path: str | Path, cfg, device: str = "cuda") -> DinoV3HotLit
     model = DinoV3HotLit.load_from_checkpoint(str(ckpt_path), map_location=device, ckpt_path=encoder_ckpt)
     model.eval()
     return model
-
-
-def _read_norm_stats(cfg) -> tuple[list[float], list[float]]:
-    root = resolve_root(cfg)
-    root.mkdir(parents=True, exist_ok=True)
-    stats_path = root / "norm_stats.json"
-    if not stats_path.exists():
-        hf_hub_download(
-            repo_id=cfg.dataset_repo,
-            repo_type="dataset",
-            filename="norm_stats.json",
-            local_dir=str(root),
-        )
-    stats = json.loads(stats_path.read_text())
-    return stats["mean"], stats["std"]
 
 
 def _gaussian_kernel(size: int, sigma_frac: float = 0.125) -> np.ndarray:
@@ -64,10 +49,8 @@ def sliding_window_predict(
     std: list[float],
     device: str = "cuda",
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, rasterio.Affine, rasterio.crs.CRS]:
-    """Returns (mask_prob, boundary_prob, distance, transform, crs).
-
-    distance is in [-1, 1] (tanh of head[2]), positive inside building, negative outside.
-    """
+    """Returns (mask_prob, boundary_prob, distance, transform, crs); distance is tanh-normalized
+    to [-1, 1], positive inside, negative outside."""
     with rasterio.open(raster_path) as src:
         h, w = src.height, src.width
         transform = src.transform
@@ -96,7 +79,8 @@ def sliding_window_predict(
                     pad[: tile.shape[0], : tile.shape[1]] = tile
                     tile = pad
                 x = _normalize(tile, mean, std).unsqueeze(0).to(device)
-                logits = model(x)[0]
+                main_logits, _ = model(x)
+                logits = main_logits[0]
                 mask_prob = torch.sigmoid(logits[0]).cpu().numpy()
                 boundary_prob = torch.sigmoid(logits[1]).cpu().numpy()
                 distance = torch.tanh(logits[2]).cpu().numpy()
@@ -121,11 +105,8 @@ def instance_separate(
     mask_threshold: float = 0.5,
     seed_min_distance: int = 4,
 ) -> np.ndarray:
-    """Per-building labels from mask + distance heads via watershed.
-
-    Seeds are local maxima of the predicted distance map (one per building center).
-    No hand-tuned threshold needed: distance peaks are intrinsically per-instance.
-    """
+    """Watershed instance labels: seeds are local maxima of the predicted distance map,
+    so each building center yields one instance without a hand-tuned threshold."""
     fg = mask_prob > mask_threshold
     if not fg.any():
         return np.zeros_like(fg, dtype=np.uint32)
@@ -148,13 +129,20 @@ def vectorize(
     transform: rasterio.Affine,
     crs: rasterio.crs.CRS,
     min_area_m2: float = 1.0,
+    simplify_m: float = 0.5,
 ) -> gpd.GeoDataFrame:
     polys = [sgeom.shape(g) for g, v in shapes(labels, mask=labels > 0, transform=transform) if v > 0]
     gdf = gpd.GeoDataFrame(geometry=polys, crs=crs)
-    if min_area_m2 > 0 and len(gdf):
-        keep = gdf.to_crs(epsg=3857).geometry.area > min_area_m2
-        gdf = gdf[keep].reset_index(drop=True)
-    return gdf
+    if not len(gdf):
+        return gdf
+    # Project once for both simplification (Douglas-Peucker removes 1-px staircase artifacts)
+    # and area filtering, then project back to the source CRS.
+    proj = gdf.to_crs(epsg=3857)
+    if simplify_m > 0:
+        proj["geometry"] = proj.geometry.simplify(tolerance=simplify_m, preserve_topology=True)
+    if min_area_m2 > 0:
+        proj = proj[proj.geometry.area > min_area_m2].reset_index(drop=True)
+    return proj.to_crs(crs)
 
 
 def predict_geotiff(
@@ -167,7 +155,7 @@ def predict_geotiff(
     seed_min_distance: int = 4,
 ) -> Path:
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-    mean, std = _read_norm_stats(cfg)
+    mean, std = load_norm_stats(cfg.dataset_repo, resolve_root(cfg))
     model = load_model(ckpt_path, cfg, device=device)
 
     mask_prob, _, distance, transform, crs = sliding_window_predict(

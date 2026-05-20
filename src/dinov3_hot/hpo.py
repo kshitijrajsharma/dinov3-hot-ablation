@@ -29,6 +29,11 @@ def _objective(trial: optuna.Trial, base_cfg: DictConfig) -> float:
         cfg.hpo.distance_loss_weight_range[0],
         cfg.hpo.distance_loss_weight_range[1],
     )
+    cfg.aux_loss_weight = trial.suggest_float(
+        "aux_loss_weight",
+        cfg.hpo.aux_loss_weight_range[0],
+        cfg.hpo.aux_loss_weight_range[1],
+    )
     cfg.tv_loss_weight = trial.suggest_float(
         "tv_loss_weight",
         cfg.hpo.tv_loss_weight_range[0],
@@ -73,9 +78,16 @@ def _objective(trial: optuna.Trial, base_cfg: DictConfig) -> float:
     val_loss = float(trainer.callback_metrics.get("val/loss", torch.tensor(float("inf"))))
     val_iou = float(trainer.callback_metrics.get("val/iou", torch.tensor(0.0)))
     log.info(
-        "Trial %d: val/loss=%.4f val/iou=%.4f lr=%g wd=%g bdy=%g dist=%g tv=%g",
-        trial.number, val_loss, val_iou,
-        cfg.lr, cfg.weight_decay, cfg.boundary_loss_weight, cfg.distance_loss_weight, cfg.tv_loss_weight,
+        "Trial %d: val/loss=%.4f val/iou=%.4f lr=%g wd=%g bdy=%g dist=%g aux=%g tv=%g",
+        trial.number,
+        val_loss,
+        val_iou,
+        cfg.lr,
+        cfg.weight_decay,
+        cfg.boundary_loss_weight,
+        cfg.distance_loss_weight,
+        cfg.aux_loss_weight,
+        cfg.tv_loss_weight,
     )
     return val_loss
 

@@ -6,7 +6,9 @@ import numpy as np
 import rasterio
 import torch
 
-from dinov3_hot.infer import _read_norm_stats, load_model, sliding_window_predict
+from dinov3_hot.config import resolve_root
+from dinov3_hot.data import load_norm_stats
+from dinov3_hot.infer import load_model, sliding_window_predict
 
 log = logging.getLogger(__name__)
 
@@ -26,7 +28,7 @@ def eval_fair_samples(
     if not tiles:
         raise FileNotFoundError(f"No tiles matching {pattern} under {samples_dir}")
 
-    mean, std = _read_norm_stats(cfg)
+    mean, std = load_norm_stats(cfg.dataset_repo, resolve_root(cfg))
     model = load_model(ckpt_path, cfg, device=device)
     rows = []
 
