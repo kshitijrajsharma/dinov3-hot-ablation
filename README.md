@@ -35,7 +35,7 @@ The recipe follows Meta's reference UperNet recipe for DINOv3 ([github issue #54
 
 The training objective is a weighted sum of four terms applied to the main head's three output channels, plus the same combination applied to the auxiliary head's outputs at weight 0.4:
 
-```
+```text
 loss = BCE(mask)
      + Dice(mask)
      + alpha * BCE(boundary)
@@ -64,33 +64,49 @@ The harmonic mean of instance precision and recall, where each predicted polygon
 
 This is **not** mAP. mAP integrates precision-recall across confidence thresholds and is used for object detection benchmarks like COCO. Instance F1 at a fixed IoU threshold is the standard metric in the cell-segmentation and building-footprint literature (stardist, Cellpose, SpaceNet) because the question is "did we recover each building as its own polygon?", not "rank these polygons by confidence".
 
-For dense urban building segmentation, **instance F1 is the metric that matches the user's intent**. Pixel IoU can stay high while instance F1 collapses if the model merges touching buildings into single blobs.
+For dense urban building segmentation, **instance F1 is the metric that matche our intent**. Pixel IoU can stay high while instance F1 collapses if the model merges touching buildings into single blobs.
 
 We report both:
 
 - **Pixel IoU**: how much of the building area was found.
 - **Instance F1**: how often individual buildings were recovered as distinct polygons.
 
-### What about mAP?
-
-mAP would need (a) a confidence score per predicted polygon, and (b) a way to vary the score threshold and trace a precision-recall curve. Our pipeline outputs binary masks then vectorizes; there's no natural per-polygon score to threshold on, so mAP doesn't apply cleanly. If we needed score-ranked output we'd compute it from average pixel-prob within each polygon, but for fAIr's end use case (mapper-grade polygons) the user wants a single threshold, so instance F1 is the right summary.
-
 ## Results
 
-Banepa OAM (Nepali dense urban, 1536x1536 raster, 2720 OSM ground-truth polygons):
+All numbers below are reproducible against pinned data revisions:
 
-| Variant | Polygons | Pixel IoU | Precision | Recall | Instance F1@0.5 |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| v1+FT (n-1 release) | 3523 | 0.680 | 0.333 | 0.432 | 0.376 |
-| **v5 (this release, no per-area FT)** | **1984** | **0.667** | **0.493** | **0.360** | **0.416** |
+- **fAIr-models sample data**: [`hotosm/fAIr-models@9f8a7b69`](https://github.com/hotosm/fAIr-models/tree/9f8a7b6987a86bdb01dd9539499678b6566ac6bf/data) (`data/sample.zip`).
+- **HF training/test dataset**: [`hotosm/vhr-building-segmentation@8d3e64e5`](https://huggingface.co/datasets/hotosm/vhr-building-segmentation/tree/8d3e64e5c69aa37209953cce3a48df1092bc7c94) (snapshot 2026-05-08).
 
-+4 pp instance F1 over the previous shipped model, with no per-area finetune required. Precision jumps by 16 pp (0.333 -> 0.493): v5's polygons are dramatically more likely to be real buildings.
+### Banepa, Nepal (fAIr-models sample)
 
-On the HF test split (global, heterogeneous), v5 reports pixel IoU 0.441.
+The fAIr-models repository ships a Banepa AOI sample with a published train/test chip split: train is the western half of the AOI (120 chips, 4239 OSM polygons), test is the eastern half (36 chips, 2720 polygons). The two splits are geographically disjoint, so a model trained on the train chips never sees the pixels under the test chips. Both label files (`train/osm/labels.geojson`, `test/osm/labels.geojson`) are official fAIr-models artifacts from the pinned commit above.
+
+Three eval surfaces on the same data, each scoring against the same OSM ground truth:
+
+| Eval surface | Pixel IoU | Precision | Recall | Instance F1@0.5 |
+| --- | ---: | ---: | ---: | ---: |
+| Per-chip, zero-shot, train chips (sanity, seen domain) | 0.646 | 0.380 | 0.531 | 0.443 |
+| **Per-chip, zero-shot, test chips (held out, matches fAIr inference contract)** | **0.655** | **0.282** | **0.416** | **0.336** |
+| Per-chip, +FT on train chips, test chips (held out) | 0.661 | 0.302 | 0.422 | 0.352 |
+| Full-raster sliding-window on stitched test scene (matches `dinov3-hot predict` CLI) | 0.667 | 0.493 | 0.360 | 0.416 |
+
+The base model, never trained on Banepa, reaches **pixel IoU 0.655 and instance F1 0.336 on the held-out per-chip test set**. Fine-tuning on the 120 train chips lifts test F1 by +1.6 pp (0.336 -> 0.352); the lift is small because the global HF pretraining already produces strong Banepa features.
+
+Full-raster sliding-window inference over the same test pixels (stitched into a 1536 x 1536 scene at z=18 OAM, ~0.6 m/pixel) reports instance F1 0.416. The gap from the per-chip number (0.336) is the result of reconstructing polygons that straddle chip boundaries.
+
+### HF global test split (7236 tiles)
+
+| Metric | v5 |
+| --- | ---: |
+| Pixel IoU | **0.441** |
+| Instance F1@0.5 | _eval in progress_ |
+
+The HF test set is a heterogeneous global sample (50+ countries); pixel IoU is lower than on geographically-focused regions like Banepa, which is expected.
 
 ## Layout
 
-```
+```text
 src/dinov3_hot/        # Python package: model, data, train, infer, finetune, hpo, export, eval, metrics
 conf/                  # YAML configs
 conf/experiments/      # tracked snapshots of HPO-found params per release
