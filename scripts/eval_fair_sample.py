@@ -25,7 +25,9 @@ REPO = Path(__file__).resolve().parents[1]
 FAIR_ROOT = REPO / "data/fair_sample/sample"
 
 
-def _predict_chip(model, chip_path: Path, mean, std, device: str, threshold: float) -> tuple[np.ndarray, np.ndarray]:
+def _predict_chip(
+    model, chip_path: Path, mean, std, device: str, threshold: float
+) -> tuple[np.ndarray, np.ndarray]:
     with rasterio.open(chip_path) as src:
         img = src.read([1, 2, 3]).transpose(1, 2, 0).astype(np.uint8)
         transform = src.transform

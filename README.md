@@ -100,9 +100,11 @@ Full-raster sliding-window inference over the same test pixels (stitched into a 
 | Metric | v5 |
 | --- | ---: |
 | Pixel IoU | **0.441** |
-| Instance F1@0.5 | _eval in progress_ |
+| Precision | 0.212 |
+| Recall | 0.345 |
+| Instance F1@0.5 | **0.262** |
 
-The HF test set is a heterogeneous global sample (50+ countries); pixel IoU is lower than on geographically-focused regions like Banepa, which is expected.
+The HF test set is a heterogeneous global sample; 
 
 ## Layout
 

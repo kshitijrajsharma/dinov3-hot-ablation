@@ -124,22 +124,55 @@ def instance_separate(
     return watershed(-distance, markers=markers, mask=fg).astype(np.uint32)
 
 
+def _dp_then_mbr_safe(geoms: list, simplify_m: float, area_threshold: float, overlap_tol_m2: float) -> list:
+    """DP-simplify each polygon, replace with its MBR if near-rectangular and the
+    replacement doesn't add more than overlap_tol_m2 of new overlap with any neighbour."""
+    from shapely.strtree import STRtree
+
+    simplified = [g.simplify(simplify_m, preserve_topology=True) for g in geoms]
+    tree = STRtree(simplified)
+    out = []
+    for i, s in enumerate(simplified):
+        m = s.minimum_rotated_rectangle
+        if not m.area or s.area / m.area <= area_threshold:
+            out.append(s)
+            continue
+        bad = False
+        for j in tree.query(m):
+            if j == i:
+                continue
+            neighbour = simplified[j]
+            if m.intersects(neighbour) and not m.touches(neighbour):
+                pre = s.intersection(neighbour).area
+                post = m.intersection(neighbour).area
+                if post - pre > overlap_tol_m2:
+                    bad = True
+                    break
+        out.append(s if bad else m)
+    return out
+
+
 def vectorize(
     labels: np.ndarray,
     transform: rasterio.Affine,
     crs: rasterio.crs.CRS,
     min_area_m2: float = 1.0,
     simplify_m: float = 0.5,
+    regularize_area_threshold: float = 0.70,
+    regularize_overlap_tol_m2: float = 1.0,
 ) -> gpd.GeoDataFrame:
     polys = [sgeom.shape(g) for g, v in shapes(labels, mask=labels > 0, transform=transform) if v > 0]
     gdf = gpd.GeoDataFrame(geometry=polys, crs=crs)
     if not len(gdf):
         return gdf
-    # Project once for both simplification (Douglas-Peucker removes 1-px staircase artifacts)
-    # and area filtering, then project back to the source CRS.
+    # Project once for regularization (in metres), then project back to the source CRS.
     proj = gdf.to_crs(epsg=3857)
-    if simplify_m > 0:
-        proj["geometry"] = proj.geometry.simplify(tolerance=simplify_m, preserve_topology=True)
+    proj["geometry"] = _dp_then_mbr_safe(
+        list(proj.geometry),
+        simplify_m=simplify_m,
+        area_threshold=regularize_area_threshold,
+        overlap_tol_m2=regularize_overlap_tol_m2,
+    )
     if min_area_m2 > 0:
         proj = proj[proj.geometry.area > min_area_m2].reset_index(drop=True)
     return proj.to_crs(crs)
@@ -173,7 +206,15 @@ def predict_geotiff(
         mask_threshold=cfg.tile_threshold,
         seed_min_distance=seed_min_distance,
     )
-    gdf = vectorize(labels, transform, crs, min_area_m2=min_area_m2)
+    gdf = vectorize(
+        labels,
+        transform,
+        crs,
+        min_area_m2=min_area_m2,
+        simplify_m=cfg.regularize_simplify_m,
+        regularize_area_threshold=cfg.regularize_area_threshold,
+        regularize_overlap_tol_m2=cfg.regularize_overlap_tol_m2,
+    )
 
     out_geojson = Path(out_geojson)
     out_geojson.parent.mkdir(parents=True, exist_ok=True)

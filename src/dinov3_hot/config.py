@@ -71,6 +71,10 @@ class TrainConfig:
     tile_stride: int = 170
     tile_threshold: float = 0.5
 
+    regularize_simplify_m: float = 0.5
+    regularize_area_threshold: float = 0.70
+    regularize_overlap_tol_m2: float = 1.0
+
     hpo: HpoConfig = field(default_factory=HpoConfig)
 
 

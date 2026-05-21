@@ -43,6 +43,10 @@ tile_window: 256
 tile_stride: 170
 tile_threshold: 0.5
 
+regularize_simplify_m: 0.5
+regularize_area_threshold: 0.70
+regularize_overlap_tol_m2: 1.0
+
 hpo:
   enabled: true
   n_trials: 12
