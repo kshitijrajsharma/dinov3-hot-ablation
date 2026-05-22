@@ -1,8 +1,12 @@
-"""Instance precision/recall/F1 at IoU > 0.5 via torchmetrics PanopticQuality."""
+"""Instance F1 (torchmetrics PanopticQuality wrapper) and polygon shape stats."""
+
+from collections.abc import Iterable
+from itertools import pairwise
 
 import numpy as np
 import torch
 from scipy import ndimage
+from shapely.geometry import Polygon
 from torchmetrics import Metric
 from torchmetrics.detection import PanopticQuality
 
@@ -18,7 +22,9 @@ def _to_panoptic(labels: np.ndarray) -> torch.Tensor:
 
 def _count(pred_labels: np.ndarray, gt_labels: np.ndarray) -> tuple[int, int, int]:
     pq = PanopticQuality(things={1}, stuffs={0})
-    pq.update(_to_panoptic(pred_labels).unsqueeze(0), _to_panoptic(gt_labels).unsqueeze(0))
+    preds = _to_panoptic(pred_labels).unsqueeze(0)
+    target = _to_panoptic(gt_labels).unsqueeze(0)
+    pq.update(preds, target)  # ty: ignore[invalid-argument-type]
     return (
         int(pq.true_positives[_THING_IDX].item()),
         int(pq.false_positives[_THING_IDX].item()),
@@ -36,6 +42,10 @@ def _prf(tp: int, fp: int, fn: int) -> dict[str, float]:
 class BinaryInstanceF1(Metric):
     full_state_update: bool = False
     higher_is_better: bool = True
+
+    tp: torch.Tensor
+    fp: torch.Tensor
+    fn: torch.Tensor
 
     def __init__(self) -> None:
         super().__init__()
@@ -63,3 +73,36 @@ class BinaryInstanceF1(Metric):
 
 def instance_prf(pred_labels: np.ndarray, gt_labels: np.ndarray) -> dict[str, float]:
     return _prf(*_count(pred_labels, gt_labels))
+
+
+def polygon_vertex_count(geoms: Iterable[Polygon]) -> float:
+    """Mean exterior vertex count (drops shapely's closing duplicate)."""
+    counts = [max(0, len(p.exterior.coords) - 1) for p in geoms if not p.is_empty]
+    return float(np.mean(counts)) if counts else 0.0
+
+
+def polygon_orthogonality(geoms: Iterable[Polygon], tol_deg: float = 5.0) -> float:
+    """Mean per-polygon fraction of edges within tol_deg of the minimum-rotated-rectangle axis."""
+    if tol_deg <= 0:
+        raise ValueError("tol_deg must be positive")
+    per_poly: list[float] = []
+    for poly in geoms:
+        if poly.is_empty:
+            continue
+        coords = list(poly.exterior.coords)
+        n_edges = len(coords) - 1
+        if n_edges < 3:
+            per_poly.append(1.0)
+            continue
+        rect_coords = list(poly.minimum_rotated_rectangle.exterior.coords)
+        ref_deg = np.degrees(
+            np.arctan2(rect_coords[1][1] - rect_coords[0][1], rect_coords[1][0] - rect_coords[0][0])
+        )
+        hits = 0
+        for (x0, y0), (x1, y1) in pairwise(coords):
+            ang = np.degrees(np.arctan2(y1 - y0, x1 - x0))
+            mod = (ang - ref_deg) % 90.0
+            if min(mod, 90.0 - mod) < tol_deg:
+                hits += 1
+        per_poly.append(hits / n_edges)
+    return float(np.mean(per_poly)) if per_poly else 0.0

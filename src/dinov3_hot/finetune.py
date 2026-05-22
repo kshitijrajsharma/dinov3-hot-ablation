@@ -47,8 +47,8 @@ class LocalChipDataset(Dataset):
     def __len__(self) -> int:
         return len(self.items)
 
-    def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
-        chip_path, mask_path = self.items[idx]
+    def __getitem__(self, index: int) -> dict[str, torch.Tensor]:
+        chip_path, mask_path = self.items[index]
         with rasterio.open(chip_path) as src:
             img_chw = torch.from_numpy(src.read([1, 2, 3]).astype(np.uint8))
         with rasterio.open(mask_path) as src:

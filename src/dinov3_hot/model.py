@@ -44,7 +44,7 @@ class DinoV3UperNet(nn.Module):
         self.decoder = UperNetDecoder(
             embed_dim=list(self.pyramid.embedding_dim),
             channels=decoder_channels,
-            pool_scales=(1, 2, 3, 6),
+            pool_scales=(1, 2, 3, 6),  # ty: ignore[invalid-argument-type]
         )
         self.dropout = nn.Dropout2d(0.1)
         self.head = nn.Conv2d(decoder_channels, N_HEAD_CHANNELS, kernel_size=1)
@@ -167,11 +167,12 @@ class DinoV3HotLit(LightningModule):
 
     def validation_step(self, batch, batch_idx):
         loss, mask_logit, mask_target = self._step(batch)
-        self.val_iou.update((torch.sigmoid(mask_logit) > 0.5).int(), mask_target.int())
+        preds = (torch.sigmoid(mask_logit) > 0.5).int()
+        self.val_iou.update(preds, mask_target.int())  # ty: ignore[invalid-argument-type]
         self.log("val/loss", loss, prog_bar=True, on_epoch=True)
 
     def on_validation_epoch_end(self):
-        iou = self.val_iou.compute()
+        iou = self.val_iou.compute()  # ty: ignore[missing-argument]
         self.log("val/iou", iou, prog_bar=True)
         val_loss = self.trainer.callback_metrics.get("val/loss")
         log.info(
@@ -184,16 +185,17 @@ class DinoV3HotLit(LightningModule):
 
     def test_step(self, batch, batch_idx):
         _, mask_logit, mask_target = self._step(batch)
-        self.test_iou.update((torch.sigmoid(mask_logit) > 0.5).int(), mask_target.int())
+        preds = (torch.sigmoid(mask_logit) > 0.5).int()
+        self.test_iou.update(preds, mask_target.int())  # ty: ignore[invalid-argument-type]
 
     def on_test_epoch_end(self):
-        self.log("test/iou", self.test_iou.compute())
+        self.log("test/iou", self.test_iou.compute())  # ty: ignore[missing-argument]
         self.test_iou.reset()
 
     def configure_optimizers(self):
         params = [p for p in self.net.parameters() if p.requires_grad]
         opt = torch.optim.AdamW(params, lr=self.lr, weight_decay=self.weight_decay)
-        total_steps = self.trainer.estimated_stepping_batches
+        total_steps = int(self.trainer.estimated_stepping_batches)
         scheduler = torch.optim.lr_scheduler.OneCycleLR(
             opt,
             max_lr=self.lr,

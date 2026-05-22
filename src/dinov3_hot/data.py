@@ -148,7 +148,7 @@ class HotBuildingDataModule(LightningDataModule):
 
     def _loader(self, ds: Dataset, batch_size: int, shuffle: bool, train: bool) -> DataLoader:
         return DataLoader(
-            ds,
+            ds,  # ty: ignore[invalid-argument-type]
             batch_size=batch_size,
             shuffle=shuffle,
             num_workers=self.num_workers,

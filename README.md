@@ -23,11 +23,11 @@ flowchart TD
     E --> F[1x1 Conv head<br/>3 channels]
     C -. tap-2, training only .-> G[Aux FCN head<br/>3 channels, loss x 0.4]
     F --> H[mask logit, boundary logit, signed distance]
-    H --> I[sigmoid mask > 0.5<br/>+ watershed seeded by peak_local_max on distance<br/>+ vectorize + Douglas-Peucker 0.5 m]
+    H --> I[sigmoid mask > 0.5<br/>+ watershed seeded by peak_local_max on distance<br/>+ vectorize + DP simplify + MBR-safe rectangularization]
     I --> J[GeoJSON polygons]
 ```
 
-At inference time, the predicted mask + distance map go through a watershed pass: local maxima of the distance map become per-building seeds, watershed assigns each pixel to its nearest seed, and the result is vectorized with Douglas-Peucker simplification at 0.5 m. This produces clean, instance-separated polygons in dense urban scenes where naive connected components would merge neighboring buildings.
+At inference time, the predicted mask + distance map go through a watershed pass: local maxima of the distance map become per-building seeds, watershed assigns each pixel to its nearest seed, and the result is vectorized. A two-step regularizer then runs in metric space: Douglas-Peucker simplifies each polygon's vertex set, and any near-rectangular polygon is replaced by its minimum rotated rectangle when the substitution does not introduce more than a small tolerance of new overlap with neighbours. The thresholds for both steps are configurable in [`conf/train.yaml`](conf/train.yaml).
 
 The recipe follows Meta's reference UperNet recipe for DINOv3 ([github issue #54](https://github.com/facebookresearch/dinov3/issues/54)) with two project-specific additions: the boundary + distance heads, and the watershed post-process.
 
@@ -50,7 +50,7 @@ The shipped checkpoint uses the params in [`conf/experiments/v5_hpo_best.yaml`](
 
 ## Metrics
 
-Two distinct metrics, both reported separately:
+We report three families, all implemented in [`src/dinov3_hot/metrics.py`](src/dinov3_hot/metrics.py):
 
 ### Pixel IoU (binary Jaccard)
 
@@ -66,45 +66,62 @@ This is **not** mAP. mAP integrates precision-recall across confidence threshold
 
 For dense urban building segmentation, **instance F1 is the metric that matche our intent**. Pixel IoU can stay high while instance F1 collapses if the model merges touching buildings into single blobs.
 
-We report both:
+### Polygon shape (avg vertices, edge orthogonality)
+
+Pixel and instance metrics say nothing about how cartographically usable the output polygons are. Two shape statistics on the predicted polygons capture that:
+
+- **avg vertices**: mean number of unique exterior vertices per polygon (`polygon_vertex_count`). OSM building polygons in dense urban scenes average ~5; a polygon traced from a raw rasterised mask can have 15+ from stairstep edges. Lower is closer to GT.
+- **edge orthogonality**: mean fraction of polygon edges aligned (within 5°) to the polygon's dominant axis, where dominant axis is the orientation of its minimum rotated rectangle (`polygon_orthogonality`). 1.0 means every edge is parallel or perpendicular to that axis (rectangular); ~0.3 means no preferred direction (jagged / free-form).
+
+We report all three families together:
 
 - **Pixel IoU**: how much of the building area was found.
 - **Instance F1**: how often individual buildings were recovered as distinct polygons.
+- **avg vertices / orthogonality**: how cartographically clean the polygons are.
 
 ## Results
 
-All numbers below are reproducible against pinned data revisions:
+All numbers reproducible against pinned data revisions:
 
-- **fAIr-models sample data**: [`hotosm/fAIr-models@9f8a7b69`](https://github.com/hotosm/fAIr-models/tree/9f8a7b6987a86bdb01dd9539499678b6566ac6bf/data) (`data/sample.zip`).
-- **HF training/test dataset**: [`hotosm/vhr-building-segmentation@8d3e64e5`](https://huggingface.co/datasets/hotosm/vhr-building-segmentation/tree/8d3e64e5c69aa37209953cce3a48df1092bc7c94) (snapshot 2026-05-08).
+- **HF training/test dataset (standard benchmark)**: [`hotosm/vhr-building-segmentation@8d3e64e5`](https://huggingface.co/datasets/hotosm/vhr-building-segmentation/tree/8d3e64e5c69aa37209953cce3a48df1092bc7c94) (snapshot 2026-05-08).
+- **fAIr-models sample (per-area validation only)**: [`hotosm/fAIr-models@9f8a7b69`](https://github.com/hotosm/fAIr-models/tree/9f8a7b6987a86bdb01dd9539499678b6566ac6bf/data) (`data/sample.zip`).
 
-### Banepa, Nepal (fAIr-models sample)
+### HF global test split (7236 tiles, standard benchmark)
 
-The fAIr-models repository ships a Banepa AOI sample with a published train/test chip split: train is the western half of the AOI (120 chips, 4239 OSM polygons), test is the eastern half (36 chips, 2720 polygons). The two splits are geographically disjoint, so a model trained on the train chips never sees the pixels under the test chips. Both label files (`train/osm/labels.geojson`, `test/osm/labels.geojson`) are official fAIr-models artifacts from the pinned commit above.
+Per-tile inference on the held-out test split. Pixel IoU and instance F1 aggregate TP/FP/FN across all tiles. Each tile carries WGS84 `bbox_*` fields, so its rasterio transform is derived per-tile (no hardcoded pixel scale), and polygon shape stats are computed in each tile's local UTM zone (via `gpd.GeoDataFrame.estimate_utm_crs`).
 
-Three eval surfaces on the same data, each scoring against the same OSM ground truth:
+| | Pixel IoU | Precision | Recall | F1@0.5 | avg v | orth |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| **v5 (shipped)** | **0.441** | 0.212 | 0.345 | **0.262** | **4.91** | **0.71** |
+| GT (HF mask polygons, for reference) | 1.000 | 1.000 | 1.000 | 1.000 | 4.30 | 0.91 |
 
-| Eval surface | Pixel IoU | Precision | Recall | Instance F1@0.5 |
-| --- | ---: | ---: | ---: | ---: |
-| Per-chip, zero-shot, train chips (sanity, seen domain) | 0.646 | 0.380 | 0.531 | 0.443 |
-| **Per-chip, zero-shot, test chips (held out, matches fAIr inference contract)** | **0.655** | **0.282** | **0.416** | **0.336** |
-| Per-chip, +FT on train chips, test chips (held out) | 0.661 | 0.302 | 0.422 | 0.352 |
-| Full-raster sliding-window on stitched test scene (matches `dinov3-hot predict` CLI) | 0.667 | 0.493 | 0.360 | 0.416 |
+The HF test set is a heterogeneous global sample, so absolute pixel IoU and instance F1 are lower than on any single curated AOI. Predicted polygons average ~14% more vertices than GT (4.91 vs 4.30) and are 78% as axis-aligned (0.71 vs 0.91), which is the cartographic gap the regularize step is meant to close.
 
-The base model, never trained on Banepa, reaches **pixel IoU 0.655 and instance F1 0.336 on the held-out per-chip test set**. Fine-tuning on the 120 train chips lifts test F1 by +1.6 pp (0.336 -> 0.352); the lift is small because the global HF pretraining already produces strong Banepa features.
+Reproduce with [`scripts/eval_hf_test.py`](scripts/eval_hf_test.py):
 
-Full-raster sliding-window inference over the same test pixels (stitched into a 1536 x 1536 scene at z=18 OAM, ~0.6 m/pixel) reports instance F1 0.416. The gap from the per-chip number (0.336) is the result of reconstructing polygons that straddle chip boundaries.
+```bash
+uv run python scripts/eval_hf_test.py --ckpt outputs/dinov3l_v5/ckpts/<your-best>.ckpt
+```
 
-### HF global test split (7236 tiles)
+### Banepa, Nepal (per-area validation)
 
-| Metric | v5 |
-| --- | ---: |
-| Pixel IoU | **0.441** |
-| Precision | 0.212 |
-| Recall | 0.345 |
-| Instance F1@0.5 | **0.262** |
+A single dense urban AOI used to spot-check behaviour on a known area. The fAIr-models repository ships a published train/test chip split: train is the western half of the AOI (120 chips, 4239 OSM polygons), test is the eastern half (36 chips, 2720 polygons), geographically disjoint. The test chips are stitched into a 1536 × 1536 GeoTIFF at z=18 OAM (~0.6 m/pixel) and run through the production `dinov3-hot predict` sliding-window CLI, matching how fAIr will invoke the shipped ONNX in deployment.
 
-The HF test set is a heterogeneous global sample; 
+| | Pixel IoU | Precision | Recall | F1@0.5 | avg v | orth |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| **v5 (shipped)** | **0.656** | 0.483 | 0.351 | **0.407** | **5.99** | **0.63** |
+| GT (OSM, for reference) | 1.000 | 1.000 | 1.000 | 1.000 | 5.30 | 0.95 |
+
+Reproduce with [`scripts/eval_banepa.py`](scripts/eval_banepa.py) (wraps `predict_geotiff` + the canonical metrics):
+
+```bash
+uv run python scripts/eval_banepa.py \
+  --ckpt outputs/dinov3l_v5/ckpts/<your-best>.ckpt \
+  --raster path/to/banepa_merged.tif \
+  --gt path/to/osm_ground_truth.geojson
+```
+
+Per-chip ablations (zero-shot and per-area-finetuned) are in [`scripts/eval_fair_sample.py`](scripts/eval_fair_sample.py); that surface bypasses the production sliding-window CLI and is not reported in the table.
 
 ## Layout
 

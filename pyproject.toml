@@ -2,7 +2,7 @@
 name = "dinov3-hot"
 version = "0.1.0"
 description = "Frozen DINOv3-L encoder + UperNet decoder fine-tuned on HOT VHR building segmentation"
-authors = [{ name = "kshitijrajsharma", email = "skshitizraj@gmail.com" }]
+authors = [{ name = "kshitijrajsharma", email = "krschap@proton.me" }]
 requires-python = ">=3.13,<3.14"
 dependencies = [
     "datasets>=4.8.5",

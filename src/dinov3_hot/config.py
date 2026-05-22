@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import cast
 
 from omegaconf import DictConfig, OmegaConf
 
@@ -85,7 +86,7 @@ def load_config(path: str | Path | None, overrides: list[str] | None = None) -> 
         base = OmegaConf.merge(base, file_cfg)
     if overrides:
         base = OmegaConf.merge(base, OmegaConf.from_dotlist(overrides))
-    return base  # type: ignore[return-value]
+    return cast(DictConfig, base)
 
 
 def resolve_root(cfg: DictConfig) -> Path:
