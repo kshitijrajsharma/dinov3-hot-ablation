@@ -167,8 +167,8 @@ class DinoV3HotLit(LightningModule):
 
     def validation_step(self, batch, batch_idx):
         loss, mask_logit, mask_target = self._step(batch)
-        preds = (torch.sigmoid(mask_logit) > 0.5).int()
-        self.val_iou.update(preds, mask_target.int())  # ty: ignore[invalid-argument-type]
+        preds = (torch.sigmoid(mask_logit) > 0.5).int().clone()
+        self.val_iou.update(preds, mask_target.int().clone())  # ty: ignore[invalid-argument-type]
         self.log("val/loss", loss, prog_bar=True, on_epoch=True)
 
     def on_validation_epoch_end(self):
@@ -185,8 +185,8 @@ class DinoV3HotLit(LightningModule):
 
     def test_step(self, batch, batch_idx):
         _, mask_logit, mask_target = self._step(batch)
-        preds = (torch.sigmoid(mask_logit) > 0.5).int()
-        self.test_iou.update(preds, mask_target.int())  # ty: ignore[invalid-argument-type]
+        preds = (torch.sigmoid(mask_logit) > 0.5).int().clone()
+        self.test_iou.update(preds, mask_target.int().clone())  # ty: ignore[invalid-argument-type]
 
     def on_test_epoch_end(self):
         self.log("test/iou", self.test_iou.compute())  # ty: ignore[missing-argument]
