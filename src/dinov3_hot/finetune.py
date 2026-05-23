@@ -143,6 +143,9 @@ def finetune(
         enable_checkpointing=False,
         enable_progress_bar=False,
         enable_model_summary=False,
+        # torch.no_grad() instead of torch.inference_mode() for eval: torchmetrics state
+        # buffers carry an inplace-update flag clash with inference-mode tensors on CPU.
+        inference_mode=False,
     )
     pre_iou = float(trainer_zero.validate(model, dataloaders=val_loader, verbose=False)[0]["val/iou"])
 
@@ -167,6 +170,7 @@ def finetune(
         logger=CSVLogger(save_dir=str(out), name="lightning"),
         log_every_n_steps=1,
         default_root_dir=str(out),
+        inference_mode=False,
     )
     trainer.fit(model, train_dataloaders=train_loader, val_dataloaders=val_loader)
     post_iou = float(ckpt_cb.best_model_score) if ckpt_cb.best_model_score is not None else float("nan")
