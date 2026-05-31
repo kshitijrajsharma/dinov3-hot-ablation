@@ -1,5 +1,6 @@
 """Post-process Optuna HPO, model-agnostic."""
 
+import math
 from pathlib import Path
 from typing import Any
 
@@ -11,11 +12,22 @@ import polymetrics
 import rasterio
 import shapely.geometry as sgeom
 import torch
+from polymetrics.shape import (
+    compactness_delta,
+    orthogonality_delta,
+    polygon_count_ratio,
+    vertex_count_ratio,
+)
 from shapely.ops import unary_union
 
 from dinov3_hot.serve import DEFAULT_INFERENCE_PARAMS
 
 TUNE_MIN_VAL_CHIPS = 8
+
+
+def _shape_quality(ratio: float, eps: float = 1e-6) -> float:
+    """exp(-|log(ratio)|): peaks at 1.0, symmetric penalty for under (<1) or over (>1)."""
+    return math.exp(-abs(math.log(max(ratio, eps))))
 
 
 def cache_val_forwards(
@@ -119,7 +131,9 @@ def tune_postprocess_run(
     default_params: dict[str, Any] | None = None,
     min_val_chips: int = TUNE_MIN_VAL_CHIPS,
 ) -> dict[str, Any]:
-    """Optuna TPE over six post-process knobs; objective is `f1 + 0.3 * mean_iou`."""
+    """Optuna TPE over six post-process knobs against a shape-aware composite that combines
+    instance F1, mean IoU, polygon-count ratio (over/under segmentation), vertex-count ratio,
+    and orthogonality/compactness deltas vs ground truth."""
     defaults = dict(DEFAULT_INFERENCE_PARAMS if default_params is None else default_params)
     if n_trials <= 0 or len(val_chip_names) < min_val_chips:
         return {
@@ -137,9 +151,9 @@ def tune_postprocess_run(
 
     def objective(trial: optuna.Trial) -> float:
         params = {
-            "confidence_threshold": trial.suggest_float("confidence_threshold", 0.3, 0.7),
+            "confidence_threshold": trial.suggest_float("confidence_threshold", 0.3, 0.8),
             "seed_min_distance": trial.suggest_int("seed_min_distance", 2, 16),
-            "simplify_m": trial.suggest_float("simplify_m", 0.5, 3.0),
+            "simplify_m": trial.suggest_float("simplify_m", 0.0, 3.0),
             "regularize_area_threshold": trial.suggest_float("regularize_area_threshold", 0.4, 0.8),
             "regularize_overlap_tol_m2": trial.suggest_float("regularize_overlap_tol_m2", 0.0, 5.0),
             "min_area_m2": trial.suggest_float("min_area_m2", 0.0, 5.0),
@@ -150,7 +164,14 @@ def tune_postprocess_run(
             # surface it as zero score so TPE moves away.
             return 0.0
         result = polymetrics.evaluate(gt, pred, iou_threshold=0.5, compute_map=False)
-        return result.f1 + 0.3 * result.mean_iou
+        return (
+            0.30 * result.f1
+            + 0.15 * result.mean_iou
+            + 0.20 * _shape_quality(polygon_count_ratio(pred, gt))
+            + 0.15 * _shape_quality(vertex_count_ratio(pred, gt))
+            + 0.10 * (1.0 - orthogonality_delta(pred, gt))
+            + 0.10 * (1.0 - compactness_delta(pred, gt))
+        )
 
     optuna.logging.set_verbosity(optuna.logging.WARNING)
     study = optuna.create_study(
