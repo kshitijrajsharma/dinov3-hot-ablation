@@ -30,3 +30,5 @@ pr_pack/
 .envrc
 .idea/
 .vscode/
+CLAUDE.md
+*plan.md

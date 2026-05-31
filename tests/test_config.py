@@ -3,7 +3,7 @@ from dinov3_hot.config import load_config
 
 def test_default_config_loads():
     cfg = load_config(None)
-    assert cfg.backbone == "terratorch_dinov3_vitl16_lvd"
+    assert cfg.backbone == "terratorch_dinov3_vitl16"
     assert cfg.img_size == 256
     assert tuple(cfg.seg_out_indices) == (5, 11, 17, 23)
     assert cfg.aux_in_index == 2

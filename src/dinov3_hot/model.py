@@ -29,10 +29,11 @@ class DinoV3UperNet(nn.Module):
         seg_out_indices: Sequence[int],
         decoder_channels: int,
         aux_in_index: int,
+        backbone_key: str = "terratorch_dinov3_vitl16",
     ):
         super().__init__()
         build_kwargs = {"ckpt_path": str(ckpt_path)} if ckpt_path else {}
-        wrapper = BACKBONE_REGISTRY.build("terratorch_dinov3_vitl16", **build_kwargs)
+        wrapper = BACKBONE_REGISTRY.build(backbone_key, **build_kwargs)
         # Bypass terratorch's wrapper to pass norm=True (it omits the arg, so intermediate features
         # would reach the decoder without the backbone's final LayerNorm applied).
         self.backbone = wrapper.dinov3
@@ -106,6 +107,7 @@ class DinoV3HotLit(LightningModule):
         onecycle_div_factor: float = 25.0,
         onecycle_final_div_factor: float = 1e4,
         ckpt_path: str | Path | None = None,
+        backbone_key: str = "terratorch_dinov3_vitl16",
     ):
         super().__init__()
         self.save_hyperparameters(ignore=["ckpt_path"])
@@ -114,6 +116,7 @@ class DinoV3HotLit(LightningModule):
             seg_out_indices=seg_out_indices,
             decoder_channels=decoder_channels,
             aux_in_index=aux_in_index,
+            backbone_key=backbone_key,
         )
         self.bce = nn.BCEWithLogitsLoss()
         self.dice = DiceLoss(mode="binary", from_logits=True)
@@ -227,4 +230,5 @@ def build_model(cfg) -> DinoV3HotLit:
         onecycle_pct_start=cfg.onecycle_pct_start,
         onecycle_div_factor=cfg.onecycle_div_factor,
         onecycle_final_div_factor=cfg.onecycle_final_div_factor,
+        backbone_key=cfg.backbone,
     )

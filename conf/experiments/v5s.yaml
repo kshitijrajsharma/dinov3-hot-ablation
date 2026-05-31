@@ -1,10 +1,10 @@
-backbone: terratorch_dinov3_vitl16
+backbone: terratorch_dinov3_vits16
 hf_ckpt_repo: kshitijrajsharma/dinov3
-hf_ckpt_file: dinov3_vitl16_pretrain_lvd1689m-8aa4cbdd.pth
+hf_ckpt_file: dinov3_vits16_pretrain_lvd1689m-08c60483.pth
 
 img_size: 256
 patch_size: 16
-seg_out_indices: [5, 11, 17, 23]
+seg_out_indices: [2, 5, 8, 11]
 aux_in_index: 2
 decoder_channels: 512
 
@@ -15,13 +15,13 @@ drop_null_images: true
 boundary_width: 2
 distance_clip: 15.0
 
-batch_size: 32
-eval_batch_size: 32
+batch_size: 64
+eval_batch_size: 64
 num_workers: 4
 pin_memory: true
 persistent_workers: true
 
-lr: 1.0e-3
+lr: 2.0e-3
 weight_decay: 1.0e-3
 max_epochs: 50
 early_stop_patience: 5
@@ -37,7 +37,7 @@ seed: 42
 grad_clip: 1.0
 
 output_dir: outputs
-run_name: dinov3l_v5
+run_name: dinov3s_v5
 
 tile_window: 256
 tile_stride: 170
@@ -52,11 +52,11 @@ hpo:
   n_trials: 12
   data_pct: 10.0
   max_epochs: 8
-  lr_range: [3.0e-4, 3.0e-3]
+  lr_range: [6.0e-4, 6.0e-3]
   weight_decay_range: [1.0e-4, 1.0e-2]
   boundary_loss_weight_range: [0.1, 2.0]
   distance_loss_weight_range: [0.1, 2.0]
   aux_loss_weight_range: [0.2, 0.6]
   tv_loss_weight_range: [0.0, 0.15]
   storage: null
-  study_name: dinov3_hot_hpo
+  study_name: dinov3s_v5_hpo
