@@ -10,10 +10,24 @@ from typing import Any
 import geopandas as gpd
 import numpy as np
 import rasterio
+import shapely
 import shapely.geometry as sgeom
 from rasterio.features import shapes
 from shapely.geometry.base import BaseGeometry
 from shapely.strtree import STRtree
+
+
+def _ensure_valid_polygon(g: BaseGeometry) -> BaseGeometry:
+    """DP simplify can emit self-intersecting polygons even with preserve_topology=True,
+    which then throws TopologyException in downstream intersection ops. Repair via
+    make_valid; if it splits into multiple parts, keep the largest by area."""
+    if g.is_valid:
+        return g
+    fixed = shapely.make_valid(g)
+    if fixed.geom_type == "Polygon":
+        return fixed
+    polys = [p for p in getattr(fixed, "geoms", []) if p.geom_type == "Polygon"]
+    return max(polys, key=lambda p: p.area) if polys else g
 
 
 def _dp_then_mbr_safe(
@@ -25,7 +39,7 @@ def _dp_then_mbr_safe(
     """DP-simplify each polygon, replace with its minimum rotated rectangle when the polygon
     is already near-rectangular and the swap doesn't add more than overlap_tol_m2 of new
     overlap with any neighbour. Operates in the CRS of the input geometries (metres)."""
-    simplified = [g.simplify(simplify_m, preserve_topology=True) for g in geoms]
+    simplified = [_ensure_valid_polygon(g.simplify(simplify_m, preserve_topology=True)) for g in geoms]
     tree = STRtree(simplified)
     out: list[BaseGeometry] = []
     for i, s in enumerate(simplified):

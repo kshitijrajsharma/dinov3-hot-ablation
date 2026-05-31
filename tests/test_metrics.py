@@ -41,8 +41,10 @@ def test_instance_prf_one_match_one_spurious():
 def test_binary_instance_f1_matches_numpy_api():
     gt = _two_instance_gt()
     pr = _one_match_one_spurious()
+    pr_t = torch.from_numpy(pr).unsqueeze(0)
+    gt_t = torch.from_numpy(gt).unsqueeze(0)
     m = BinaryInstanceF1()
-    m.update(torch.from_numpy(pr).unsqueeze(0), torch.from_numpy(gt).unsqueeze(0))  # ty: ignore[invalid-argument-type]
+    m.update(pr_t, gt_t)  # ty: ignore[invalid-argument-type]
     assert m.compute().item() == 0.5  # ty: ignore[missing-argument]
     prf = m.precision_recall_f1()
     assert prf["tp"] == 1 and prf["fp"] == 1 and prf["fn"] == 1
@@ -51,9 +53,11 @@ def test_binary_instance_f1_matches_numpy_api():
 def test_binary_instance_f1_accumulates_across_batches():
     gt = _two_instance_gt()
     pr = _one_match_one_spurious()
+    pr_t = torch.from_numpy(pr).unsqueeze(0)
+    gt_t = torch.from_numpy(gt).unsqueeze(0)
     m = BinaryInstanceF1()
-    m.update(torch.from_numpy(pr).unsqueeze(0), torch.from_numpy(gt).unsqueeze(0))  # ty: ignore[invalid-argument-type]
-    m.update(torch.from_numpy(gt).unsqueeze(0), torch.from_numpy(gt).unsqueeze(0))  # ty: ignore[invalid-argument-type]
+    m.update(pr_t, gt_t)  # ty: ignore[invalid-argument-type]
+    m.update(gt_t, gt_t)  # ty: ignore[invalid-argument-type]
     prf = m.precision_recall_f1()
     assert prf["tp"] == 3
     assert prf["fp"] == 1
@@ -62,8 +66,9 @@ def test_binary_instance_f1_accumulates_across_batches():
 
 def test_binary_instance_f1_perfect_and_empty():
     gt = _two_instance_gt()
+    gt_t = torch.from_numpy(gt).unsqueeze(0)
     m_perfect = BinaryInstanceF1()
-    m_perfect.update(torch.from_numpy(gt).unsqueeze(0), torch.from_numpy(gt).unsqueeze(0))  # ty: ignore[invalid-argument-type]
+    m_perfect.update(gt_t, gt_t)  # ty: ignore[invalid-argument-type]
     assert m_perfect.compute().item() == 1.0  # ty: ignore[missing-argument]
 
     m_empty = BinaryInstanceF1()

@@ -27,7 +27,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 @dataclass
 class TrainConfig:
-    backbone: str = "terratorch_dinov3_vitl16_lvd"
+    backbone: str = "terratorch_dinov3_vitl16"
     hf_ckpt_repo: str = "kshitijrajsharma/dinov3"
     hf_ckpt_file: str = "dinov3_vitl16_pretrain_lvd1689m-8aa4cbdd.pth"
 
