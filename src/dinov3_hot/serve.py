@@ -151,9 +151,12 @@ def predict_session(
         raise ValueError("params['confidence_threshold'] is required")
     threshold = float(params["confidence_threshold"])
     seed_min_distance = int(params.get("seed_min_distance", SEED_MIN_DISTANCE))
+    stride = int(params.get("sliding_stride", SLIDING_STRIDE))
 
     image_hwc, transform, crs = merge_chips_to_array(input_dir)
-    mask_prob, _boundary, distance = sliding_window_onnx(session, image_hwc, mean=mean, std=std)
+    mask_prob, _boundary, distance = sliding_window_onnx(
+        session, image_hwc, mean=mean, std=std, stride=stride
+    )
     labels = instance_separate(
         mask_prob, distance, mask_threshold=threshold, seed_min_distance=seed_min_distance
     )
