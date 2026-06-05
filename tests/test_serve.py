@@ -1,15 +1,35 @@
 """Unit tests for the torch-free helpers in dinov3_hot.serve."""
 
+from types import SimpleNamespace
+
 import numpy as np
 
 from dinov3_hot.serve import (
     HOT_MEAN,
     HOT_STD,
+    INFERENCE_BATCH_SIZE,
     MODEL_INPUT_SIZE,
     SLIDING_STRIDE,
     gaussian_kernel,
     normalize_chw,
+    sliding_window_onnx,
 )
+
+
+class _IdentitySession:
+    """Stand-in ONNX session: echoes the input chip as logits so output is deterministic."""
+
+    def __init__(self, batch: int) -> None:
+        self._batch = batch
+
+    def get_inputs(self) -> list[SimpleNamespace]:
+        shape = [self._batch, 3, MODEL_INPUT_SIZE, MODEL_INPUT_SIZE]
+        return [SimpleNamespace(name="image", shape=shape)]
+
+    def run(self, _outputs: object, feeds: dict[str, np.ndarray]) -> list[np.ndarray]:
+        chip = feeds["image"]
+        assert chip.shape[0] == self._batch
+        return [chip]
 
 
 def test_gaussian_kernel_shape_peak_and_separability() -> None:
@@ -42,5 +62,17 @@ def test_normalize_chw_orders_brightness_correctly() -> None:
 def test_module_constants_are_plausible() -> None:
     assert MODEL_INPUT_SIZE == 256
     assert SLIDING_STRIDE == 128
+    assert INFERENCE_BATCH_SIZE >= 1
     assert all(0 < m < 1 for m in HOT_MEAN)
     assert all(0 < s < 1 for s in HOT_STD)
+
+
+def test_sliding_window_batched_matches_single() -> None:
+    # 3x3 windows: the last batch is partial, exercising the zero-pad path.
+    rng = np.random.default_rng(0)
+    image = rng.integers(0, 256, size=(450, 450, 3), dtype=np.uint8)
+    single = sliding_window_onnx(_IdentitySession(1), image)
+    batched = sliding_window_onnx(_IdentitySession(INFERENCE_BATCH_SIZE), image)
+    for one, many in zip(single, batched, strict=True):
+        assert one.shape == (450, 450)
+        assert np.allclose(one, many)

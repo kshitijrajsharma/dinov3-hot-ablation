@@ -18,6 +18,7 @@ HOT_STD: list[float] = [0.2056069389373208, 0.16738555558380538, 0.1598986422586
 
 MODEL_INPUT_SIZE = 256
 SLIDING_STRIDE = 128
+INFERENCE_BATCH_SIZE = 8
 SEED_MIN_DISTANCE = 4
 
 DEFAULT_INFERENCE_PARAMS: dict[str, Any] = {
@@ -69,21 +70,38 @@ def sliding_window_onnx(
     if cols[-1] + window < width:
         cols.append(width - window)
 
-    input_name = session.get_inputs()[0].name
-    for row in rows:
-        for col in cols:
-            tile = image_hwc[row : row + window, col : col + window, :]
-            if tile.shape[0] != window or tile.shape[1] != window:
-                pad = np.zeros((window, window, 3), dtype=image_hwc.dtype)
-                pad[: tile.shape[0], : tile.shape[1]] = tile
-                tile = pad
-            chw = normalize_chw(tile, mean, std)[np.newaxis, ...]
-            logits = session.run(None, {input_name: chw})[0]
-            mask_acc[row : row + window, col : col + window] += (1.0 / (1.0 + np.exp(-logits[0, 0]))) * kernel
-            boundary_acc[row : row + window, col : col + window] += (
-                1.0 / (1.0 + np.exp(-logits[0, 1]))
+    input_meta = session.get_inputs()[0]
+    input_name = input_meta.name
+    # Exported ONNX has a static batch dim; group windows to match it.
+    batch = input_meta.shape[0]
+
+    positions = [(row, col) for row in rows for col in cols]
+    chips = np.empty((len(positions), 3, window, window), dtype=np.float32)
+    for index, (row, col) in enumerate(positions):
+        tile = image_hwc[row : row + window, col : col + window, :]
+        if tile.shape[0] != window or tile.shape[1] != window:
+            pad = np.zeros((window, window, 3), dtype=image_hwc.dtype)
+            pad[: tile.shape[0], : tile.shape[1]] = tile
+            tile = pad
+        chips[index] = normalize_chw(tile, mean, std)
+
+    for start in range(0, len(positions), batch):
+        group = chips[start : start + batch]
+        filled = group.shape[0]
+        if filled < batch:
+            padded = np.zeros((batch, 3, window, window), dtype=np.float32)
+            padded[:filled] = group
+            group = padded
+        logits = session.run(None, {input_name: group})[0]
+        for offset in range(filled):
+            row, col = positions[start + offset]
+            mask_acc[row : row + window, col : col + window] += (
+                1.0 / (1.0 + np.exp(-logits[offset, 0]))
             ) * kernel
-            distance_acc[row : row + window, col : col + window] += np.tanh(logits[0, 2]) * kernel
+            boundary_acc[row : row + window, col : col + window] += (
+                1.0 / (1.0 + np.exp(-logits[offset, 1]))
+            ) * kernel
+            distance_acc[row : row + window, col : col + window] += np.tanh(logits[offset, 2]) * kernel
             weight_acc[row : row + window, col : col + window] += kernel
 
     # Every pixel in the image is covered by at least one window;

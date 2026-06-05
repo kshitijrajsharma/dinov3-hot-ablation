@@ -8,6 +8,7 @@ from huggingface_hub import hf_hub_download
 from torch import nn
 
 from dinov3_hot.model import DinoV3HotLit
+from dinov3_hot.serve import INFERENCE_BATCH_SIZE
 
 log = logging.getLogger(__name__)
 
@@ -39,7 +40,7 @@ def export_onnx(
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    dummy = torch.randn(1, 3, cfg.img_size, cfg.img_size, device=device)
+    dummy = torch.randn(INFERENCE_BATCH_SIZE, 3, cfg.img_size, cfg.img_size, device=device)
     onnx_program = torch.onnx.export(
         inner,
         (dummy,),
@@ -47,7 +48,6 @@ def export_onnx(
         opset_version=opset,
         input_names=["image"],
         output_names=["logits"],
-        dynamic_shapes={"x": {0: torch.export.Dim("batch")}},
         dynamo=True,
     )
     if onnx_program is not None:
