@@ -20,10 +20,14 @@ MODEL_INPUT_SIZE = 256
 SLIDING_STRIDE = 128
 INFERENCE_BATCH_SIZE = 8
 SEED_MIN_DISTANCE = 4
+LARGE_BLOB_AREA_PX = 1500
+H_MAXIMA_DEPTH = 0.2
 
 DEFAULT_INFERENCE_PARAMS: dict[str, Any] = {
     "confidence_threshold": 0.5,
     "seed_min_distance": SEED_MIN_DISTANCE,
+    "large_blob_area_px": LARGE_BLOB_AREA_PX,
+    "h_maxima_depth": H_MAXIMA_DEPTH,
     "simplify_m": 1.0,
     "regularize_area_threshold": 0.55,
     "regularize_overlap_tol_m2": 1.0,
@@ -169,6 +173,8 @@ def predict_session(
         raise ValueError("params['confidence_threshold'] is required")
     threshold = float(params["confidence_threshold"])
     seed_min_distance = int(params.get("seed_min_distance", SEED_MIN_DISTANCE))
+    large_blob_area_px = int(params.get("large_blob_area_px", LARGE_BLOB_AREA_PX))
+    h_maxima_depth = float(params.get("h_maxima_depth", H_MAXIMA_DEPTH))
     stride = int(params.get("sliding_stride", SLIDING_STRIDE))
 
     image_hwc, transform, crs = merge_chips_to_array(input_dir)
@@ -176,7 +182,12 @@ def predict_session(
         session, image_hwc, mean=mean, std=std, stride=stride
     )
     labels = instance_separate(
-        mask_prob, distance, mask_threshold=threshold, seed_min_distance=seed_min_distance
+        mask_prob,
+        distance,
+        mask_threshold=threshold,
+        seed_min_distance=seed_min_distance,
+        large_blob_area_px=large_blob_area_px,
+        h_maxima_depth=h_maxima_depth,
     )
     gdf = vectorize(
         labels,

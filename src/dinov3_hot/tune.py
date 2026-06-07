@@ -93,6 +93,8 @@ def trial_predictions(cache: list[dict[str, Any]], params: dict[str, Any]) -> gp
     # Lazy: infer pulls torch but trial loops also need numpy outputs; cache already paid the cost.
     from dinov3_hot.infer import instance_separate, vectorize
 
+    large_blob_area_px = params.get("large_blob_area_px", DEFAULT_INFERENCE_PARAMS["large_blob_area_px"])
+    h_maxima_depth = params.get("h_maxima_depth", DEFAULT_INFERENCE_PARAMS["h_maxima_depth"])
     per_chip = []
     for entry in cache:
         labels = instance_separate(
@@ -100,6 +102,8 @@ def trial_predictions(cache: list[dict[str, Any]], params: dict[str, Any]) -> gp
             entry["distance"],
             mask_threshold=params["confidence_threshold"],
             seed_min_distance=params["seed_min_distance"],
+            large_blob_area_px=large_blob_area_px,
+            h_maxima_depth=h_maxima_depth,
         )
         gdf = vectorize(
             labels,
@@ -153,6 +157,8 @@ def tune_postprocess_run(
         params = {
             "confidence_threshold": trial.suggest_float("confidence_threshold", 0.3, 0.8),
             "seed_min_distance": trial.suggest_int("seed_min_distance", 2, 16),
+            "large_blob_area_px": trial.suggest_int("large_blob_area_px", 200, 8000),
+            "h_maxima_depth": trial.suggest_float("h_maxima_depth", 0.05, 0.5),
             "simplify_m": trial.suggest_float("simplify_m", 0.0, 3.0),
             "regularize_area_threshold": trial.suggest_float("regularize_area_threshold", 0.4, 0.8),
             "regularize_overlap_tol_m2": trial.suggest_float("regularize_overlap_tol_m2", 0.0, 5.0),

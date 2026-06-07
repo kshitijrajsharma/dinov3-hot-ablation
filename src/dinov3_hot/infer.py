@@ -9,6 +9,7 @@ from huggingface_hub import hf_hub_download
 from scipy import ndimage
 from scipy.signal.windows import gaussian as gauss1d
 from skimage.feature import peak_local_max
+from skimage.morphology import h_maxima
 from skimage.segmentation import watershed
 
 from dinov3_hot.config import resolve_root
@@ -102,23 +103,39 @@ def instance_separate(
     distance: np.ndarray,
     mask_threshold: float = 0.5,
     seed_min_distance: int = 4,
+    large_blob_area_px: int = 1500,
+    h_maxima_depth: float = 0.2,
 ) -> np.ndarray:
-    """Watershed instance labels: seeds are local maxima of the predicted distance map,
-    so each building center yields one instance without a hand-tuned threshold."""
+    """Watershed instance labels. Foreground blobs up to `large_blob_area_px` seed on distance
+    local maxima; bigger blobs seed on the distance h-maxima (prominence `h_maxima_depth`) so a
+    single large roof yields one instance instead of one per spurious distance bump."""
     fg = mask_prob > mask_threshold
     if not fg.any():
         return np.zeros_like(fg, dtype=np.uint32)
+
+    components, _ = ndimage.label(fg)
+    is_large = np.bincount(components.ravel()) > large_blob_area_px
+    is_large[0] = False
+    large_mask = is_large[components]
+    small_mask = fg & ~large_mask
+
+    seeds = np.zeros_like(fg, dtype=bool)
     coords = peak_local_max(
         distance,
         min_distance=seed_min_distance,
-        labels=fg.astype(np.uint8),
+        labels=small_mask.astype(np.uint8),
         exclude_border=False,
     )
-    if len(coords) == 0:
+    if len(coords):
+        seeds[tuple(coords.T)] = True
+    if large_mask.any():
+        large_distance = distance.astype(np.float32, copy=True)
+        large_distance[~large_mask] = float(large_distance[large_mask].min())
+        seeds |= h_maxima(large_distance, h_maxima_depth).astype(bool) & large_mask
+
+    markers, n_markers = ndimage.label(seeds)
+    if n_markers == 0:
         return ndimage.label(fg)[0].astype(np.uint32)
-    seeds = np.zeros_like(fg, dtype=bool)
-    seeds[tuple(coords.T)] = True
-    markers, _ = ndimage.label(seeds)
     return watershed(-distance, markers=markers, mask=fg).astype(np.uint32)
 
 
